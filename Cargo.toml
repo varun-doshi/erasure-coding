@@ -1,0 +1,7 @@
+[package]
+name = "erasure-coding"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+modc={git="https://github.com/varun-doshi/modc.git", branch = "next"}
