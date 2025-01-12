@@ -1,3 +1,6 @@
+static THRESHOLD: i32 = 30;
+static DATA_LENGTH: i32 = 5;
+
 pub fn eval(message: &str) -> Vec<u8> {
     message.as_bytes().to_vec()
 }
@@ -12,13 +15,15 @@ pub fn erasure_coding(message: &str) -> Vec<(f64, f64)> {
     for i in 0..polynomial_coeffs.len() {
         code_word.push(poly_eval(&polynomial_coeffs, (i + 1) as f64));
     }
-    let parity_1 = poly_eval(&polynomial_coeffs, (message_bytes.clone().len() + 1) as f64);
-    let parity_2 = poly_eval(&polynomial_coeffs, (message_bytes.clone().len() + 2) as f64);
-    let parity_3 = poly_eval(&polynomial_coeffs, (message_bytes.len() + 3) as f64);
 
-    code_word.push(parity_1);
-    code_word.push(parity_2);
-    code_word.push(parity_3);
+    let parity_length = ((THRESHOLD as f64) / 100.0 * code_word.len() as f64).ceil() as usize;
+
+    for i in 0..parity_length {
+        code_word.push(poly_eval(
+            &polynomial_coeffs,
+            (message_bytes.clone().len() + (i + 1)) as f64,
+        ))
+    }
 
     let mut result: Vec<(f64, f64)> = vec![];
     for i in 0..code_word.len() {
@@ -27,14 +32,10 @@ pub fn erasure_coding(message: &str) -> Vec<(f64, f64)> {
     result
 }
 
-pub fn lagrange_interpolation(points: Vec<(f64,f64)>) -> Vec<f64> {
-    // let mut points = vec![];
-    // for i in 0..message.len() {
-    //     points.push(((i + 1) as f64, message[i]));
-    // }
-    println!("{:?}", points);
+pub fn lagrange_interpolation(points: Vec<(f64, f64)>, size: usize) -> Vec<f64> {
+    // println!("{:?}", points);
     let n = points.len();
-    let mut coeffs = vec![0.0; n]; // Resultant polynomial coefficients
+    let mut coeffs = vec![0.0; size]; // Resultant polynomial coefficients
 
     for i in 0..n {
         let (x_i, y_i) = points[i];
@@ -66,7 +67,7 @@ pub fn lagrange_interpolation(points: Vec<(f64,f64)>) -> Vec<f64> {
         }
     }
 
-    coeffs
+    coeffs.iter().map(|coeff| coeff.abs().round()).collect()
 }
 
 pub fn poly_eval(coeffs: &Vec<f64>, point: f64) -> f64 {
@@ -78,7 +79,7 @@ pub fn poly_eval(coeffs: &Vec<f64>, point: f64) -> f64 {
     result
 }
 
-pub fn recover(coeffs: &Vec<(f64,f64)>,point: f64)->f64{
+pub fn recover(coeffs: &Vec<(f64, f64)>, point: f64) -> f64 {
     let coeff_y: Vec<_> = coeffs.into_iter().map(|v| v.1).collect();
 
     let mut result = 0.0;
@@ -100,36 +101,106 @@ mod tests {
         println!("{:?}", result);
     }
 
-    // #[test]
-    // fn lagrange_works() {
-    //     let result = lagrange_interpolation(vec![72.0, 101.0, 108.0, 108.0, 111.0]);
-    //     let d = result.len();
-
-    //     // println!("{:?}", result);
-    //     assert_eq!(result[0], 1.0);
-    //     assert_eq!(result[1], 99.91666666666654);
-    //     assert_eq!(result[2], -33.291666666666515);
-    //     assert_eq!(result[3], 4.5833333333333215);
-    //     assert_eq!(result[4], -0.20833333333333215);
-
-    //     let eval_1 = poly_eval(&result.clone(), (d + 1) as f64);
-    //     let eval_2 = poly_eval(&result.clone(), (d + 2) as f64);
-    //     let eval_3 = poly_eval(&result, (d + 3) as f64);
-
-    //     assert_eq!(eval_1, 122.00000000000381);
-    //     assert_eq!(eval_2, 141.0000000000053);
-    //     assert_eq!(eval_3, 163.0000000000075);
-    // }
-    
-    
     #[test]
-    fn erasure_coding_works() {
+    fn erasure_coding_works_1() {
         let result = erasure_coding("Hello");
-        let malformed_result = vec![(1.0, 500.0), (3.0, 13254.0), (5.0, 86152.0), (6.0, 171750.0), (7.0, 309626.0)];
-        let recovered_polynomial=lagrange_interpolation(malformed_result);
+        println!("Original evaluations : {:?}", result);
+        let malformed_message = vec![
+            (1.0, 500.0),
+            (3.0, 13254.0),
+            (5.0, 86152.0),
+            (6.0, 171750.0),
+            (7.0, 309626.0),
+            (8.0, 517744.0),
+        ];
+        let recovered_polynomial = lagrange_interpolation(malformed_message, result.len());
 
-        println!("Malformed:{:?}", recovered_polynomial);
+        println!("Recovered:{:?}", recovered_polynomial);
+        assert_eq!(result[1].1, poly_eval(&recovered_polynomial, 2.0));
+    }
+    #[test]
+    fn erasure_coding_works_2() {
+        let message = "Rust";
+        let result = erasure_coding(message);
+        println!("Original evaluations : {:?}", result);
+        let malformed_message = vec![(2.0, 1704.0), (3.0, 4600.0), (4.0, 9814.0), (6.0, 29980.0)];
+        let recovered_polynomial = lagrange_interpolation(malformed_message, result.len());
 
-        println!("At 2:{}",poly_eval(&recovered_polynomial, 2.0));
+        println!("Recovered coeffs: {:?}", recovered_polynomial);
+        assert_eq!(result[1].1, poly_eval(&recovered_polynomial, 2.0));
+    }
+    #[test]
+    fn erasure_coding_works_3() {
+        let message = "Propagated";
+        let result = erasure_coding(message);
+        println!("Original coeffs : {:?}", eval(message));
+        println!("Original evaluations : {:?}", result);
+        let malformed_message = vec![
+            (1.0, 1031.0),
+            (2.0, 104608.0),
+            (3.0, 2992697.0),
+            (5.0, 245743675.0),
+            (6.0, 1215364616.0),
+            (7.0, 4726557293.0),
+            (8.0, 15388807072.0),
+            (10.0, 111368394320.0),
+            (11.0, 259895541601.0),
+            (13.0, 1150627048547.0),
+        ];
+        let recovered_polynomial = lagrange_interpolation(malformed_message, result.len());
+
+        println!("Recovered coeffs: {:?}", recovered_polynomial);
+        assert_eq!(result[1].1, poly_eval(&recovered_polynomial, 2.0));
+    }
+
+    #[test]
+    fn erasure_coding_works_4() {
+        let message = "vitaliketh";
+        let result = erasure_coding(message);
+
+        println!("Original evaluations : {:?}", result);
+        let malformed_message = vec![
+            (1.0, 1077.0),
+            (2.0, 109376.0),
+            (3.0, 3145357.0),
+            (4.0, 37101978.0),
+            (5.0, 258411293.0),
+            (6.0, 1277163892.0),
+            (7.0, 4963322181.0),
+            (8.0, 16148603582.0),
+            (9.0, 45832084453.0),
+            (10.0, 116728689768.0),
+            (11.0, 272268587357.0),
+            (12.0, 590462098786.0),
+            (13.0, 1204389071757.0),
+        ];
+        let recovered_polynomial = lagrange_interpolation(malformed_message, result.len());
+
+        println!("Recovered coeffs: {:?}", recovered_polynomial);
+        assert_eq!(result[1].1, poly_eval(&recovered_polynomial, 2.0));
+    }
+    #[test]
+    fn erasure_coding_works_5() {
+        let message = "abcdefghi";
+        let result = erasure_coding(message);
+       
+        let malformed_message = vec![
+            (1.0, 909.0),
+            (2.0, 53153.0),
+            (3.0, 1028389.0),
+            (4.0, 9145881.0),
+            (5.0, 51147437.0),
+            (6.0, 211228489.0),
+            (7.0, 705067173.0),
+            (8.0, 2010526769.0),
+            (9.0, 5078840461.0),
+            (10.0, 11654320977.0),
+            (11.0, 24734871269.0),
+            (12.0, 49209805993.0),
+        ];
+        let recovered_polynomial = lagrange_interpolation(malformed_message, result.len());
+
+        println!("Recovered coeffs: {:?}", recovered_polynomial);
+        assert_eq!(result[1].1, poly_eval(&recovered_polynomial, 2.0));
     }
 }
